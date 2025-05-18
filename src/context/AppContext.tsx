@@ -56,7 +56,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [userData] = useState({
     name: 'Krishna Bantola',
     email: 'mrkrisshu@gmail.com',
-    avatar: 'src/images/avatar-image.jpg',
+    avatar: 'https://drive.google.com/file/d/1s8ZzOpYle8kEh1T4rYoxxOHpBMVsUyQa/view?usp=sharing',
     progress: {
       completedCourses: 3,
       totalCourses: 12,
