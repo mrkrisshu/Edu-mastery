@@ -9,7 +9,8 @@ import {
   FileText, 
   Video, 
   Clock,
-  BarChart3, 
+  BarChart3,
+  BookOpenCheck, // Added for Lesson Tracker (if not available, use another appropriate icon)
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -23,6 +24,7 @@ const navItems = [
   { name: 'Notes', icon: FileText, path: '/app/notes' },
   { name: 'Videos', icon: Video, path: '/app/videos' },
   { name: 'Schedule', icon: Calendar, path: '/app/schedule' },
+  { name: 'Lesson Tracker', icon: BookOpenCheck, path: '/app/lessons' }, // Added Lesson Tracker
 ];
 
 const Sidebar: React.FC = () => {

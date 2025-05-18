@@ -1,6 +1,8 @@
+// src/pages/VideoPlayer.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import ReactPlayer from 'react-player';
-import styles from '../styles/VideoPlayer.module.css';
+import { motion } from 'framer-motion';
+import { Clock, Volume2, VolumeX, Maximize, Minimize, PlayCircle, PauseCircle, SkipForward, SkipBack, MessageSquare } from 'lucide-react';
 
 // Define types for our component
 interface Comment {
@@ -13,7 +15,6 @@ interface Comment {
 
 interface VideoPlayerProps {
   videoUrl: string;
-  initialComments?: Comment[];
 }
 
 // Helper function for time formatting
@@ -23,27 +24,37 @@ const formatTime = (timeInSeconds: number): string => {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 };
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
-  videoUrl, 
-  initialComments = [] 
-}) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl }) => {
   const playerRef = useRef<ReactPlayer>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
-  const [comments, setComments] = useState<Comment[]>(initialComments);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState<string>('');
   const [showCommentForm, setShowCommentForm] = useState<boolean>(false);
-  const [volume, setVolume] = useState<number>(1);
+  const [volume, setVolume] = useState<number>(0.7);
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
-  const [isYouTube, setIsYouTube] = useState<boolean>(false);
+  const [controlsVisible, setControlsVisible] = useState<boolean>(true);
+  const [isBuffering, setIsBuffering] = useState<boolean>(false);
   
-  // Check if the URL is YouTube
+  // Load comments from localStorage on initial render
   useEffect(() => {
-    setIsYouTube(ReactPlayer.canPlay(videoUrl) && videoUrl.includes('youtube'));
+    const savedComments = localStorage.getItem(`video-comments-${videoUrl}`);
+    if (savedComments) {
+      try {
+        setComments(JSON.parse(savedComments));
+      } catch (error) {
+        console.error('Failed to parse saved comments', error);
+      }
+    }
   }, [videoUrl]);
+
+  // Save comments to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem(`video-comments-${videoUrl}`, JSON.stringify(comments));
+  }, [comments, videoUrl]);
 
   // Handle video metadata loaded and progress
   const handleDuration = (duration: number): void => {
@@ -64,7 +75,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!playerRef.current) return;
     
     const progressBar = e.currentTarget;
-    const clickPosition = (e.clientX - progressBar.getBoundingClientRect().left) / progressBar.offsetWidth;
+    const rect = progressBar.getBoundingClientRect();
+    const clickPosition = (e.clientX - rect.left) / rect.width;
     const newTime = clickPosition * duration;
     
     playerRef.current.seekTo(newTime);
@@ -83,7 +95,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       createdAt: new Date().toISOString()
     };
     
-    setComments([...comments, newCommentObj]);
+    setComments(prevComments => [...prevComments, newCommentObj]);
     setNewComment('');
     setShowCommentForm(false);
   };
@@ -94,7 +106,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     
     playerRef.current.seekTo(timestamp);
     setCurrentTime(timestamp);
-    if (!isPlaying) togglePlay();
+    if (!isPlaying) setIsPlaying(true);
   };
 
   // Handle volume change
@@ -129,8 +141,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         (document as any).msExitFullscreen();
       }
     }
-    
-    setIsFullScreen(!isFullScreen);
   };
 
   // Handle keyboard shortcuts
@@ -150,16 +160,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           togglePlay();
           break;
         case 'ArrowRight':
+          e.preventDefault();
           playerRef.current.seekTo(currentTime + 10);
           break;
         case 'ArrowLeft':
+          e.preventDefault();
           playerRef.current.seekTo(currentTime - 10);
           break;
         case 'f':
+          e.preventDefault();
           toggleFullScreen();
           break;
         case 'm':
-          setVolume(volume === 0 ? 1 : 0);
+          e.preventDefault();
+          setVolume(volume === 0 ? 0.7 : 0);
           break;
         default:
           break;
@@ -199,12 +213,65 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Check if there are comments around the current timestamp
   const activeComments = sortedComments.filter(
-    comment => Math.abs(comment.timestamp - currentTime) < 5
+    comment => Math.abs(comment.timestamp - currentTime) < 3
   );
 
+  // Hide controls after inactivity
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    
+    const handleMouseMove = () => {
+      setControlsVisible(true);
+      clearTimeout(timeout);
+      
+      timeout = setTimeout(() => {
+        if (isPlaying) {
+          setControlsVisible(false);
+        }
+      }, 3000);
+    };
+    
+    const videoContainer = videoContainerRef.current;
+    if (videoContainer) {
+      videoContainer.addEventListener('mousemove', handleMouseMove);
+      videoContainer.addEventListener('mouseenter', handleMouseMove);
+      videoContainer.addEventListener('mouseleave', () => {
+        if (isPlaying) {
+          setControlsVisible(false);
+        }
+      });
+    }
+    
+    return () => {
+      clearTimeout(timeout);
+      if (videoContainer) {
+        videoContainer.removeEventListener('mousemove', handleMouseMove);
+        videoContainer.removeEventListener('mouseenter', handleMouseMove);
+        videoContainer.removeEventListener('mouseleave', () => {});
+      }
+    };
+  }, [isPlaying]);
+
   return (
-    <div className={styles.videoPlayerContainer} ref={videoContainerRef}>
-      <div className={styles.videoWrapper}>
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="p-6"
+    >
+      <h1 className="text-2xl font-bold mb-4 text-gray-800 dark:text-white">Interactive Video Player</h1>
+      
+      <div 
+        ref={videoContainerRef}
+        className="relative overflow-hidden rounded-lg shadow-lg bg-black mb-6"
+        style={{ aspectRatio: '16/9' }}
+      >
+        {isBuffering && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-10">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+          </div>
+        )}
+        
         <ReactPlayer
           ref={playerRef}
           url={videoUrl}
@@ -217,171 +284,283 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onProgress={handleProgress}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
-          onClick={togglePlay}
+          onBuffer={() => setIsBuffering(true)}
+          onBufferEnd={() => setIsBuffering(false)}
           config={{
             youtube: {
               playerVars: { 
-                origin: window.location.origin,
                 modestbranding: 1,
-                rel: 0
+                rel: 0,
+                showinfo: 0,
+                controls: 0,
+                disablekb: 1
               }
             },
+            file: {
+              attributes: {
+                controlsList: 'nodownload'
+              }
+            }
           }}
-          controls={isYouTube} // Use YouTube's native controls for YouTube videos
         />
         
         {activeComments.length > 0 && (
-          <div className={styles.activeCommentOverlay}>
+          <div className="absolute bottom-20 left-4 right-4 bg-gray-900 bg-opacity-75 text-white p-3 rounded-lg z-20 shadow-lg">
             {activeComments.map(comment => (
-              <div key={comment.id} className={styles.activeComment}>
-                <span className={styles.commentAuthor}>{comment.author}:</span> {comment.text}
+              <div key={comment.id} className="mb-1 last:mb-0">
+                <span className="font-semibold text-primary-400">{comment.author}:</span> {comment.text}
               </div>
             ))}
           </div>
         )}
         
-        {/* Only show our custom controls for non-YouTube videos or when we want to override YouTube controls */}
-        {!isYouTube && (
-          <div className={styles.controls}>
-            <button className={styles.playButton} onClick={togglePlay}>
-              {isPlaying ? '❚❚' : '▶'}
-            </button>
-            
-            <div className={styles.progressBarContainer} onClick={handleProgressClick}>
+        <div 
+          className={`absolute inset-0 flex items-center justify-center cursor-pointer transition-opacity duration-300 ${
+            !isPlaying && !controlsVisible ? 'opacity-100' : 'opacity-0'
+          }`}
+          onClick={togglePlay}
+        >
+          <div className="rounded-full bg-gray-900 bg-opacity-75 p-4">
+            <PlayCircle size={50} className="text-white" />
+          </div>
+        </div>
+        
+        <div 
+          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent px-4 py-3 transition-opacity duration-300 ${
+            controlsVisible || !isPlaying ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          {/* Progress bar with comment markers */}
+          <div className="relative mb-2 h-1 group" onClick={handleProgressClick}>
+            <div className="absolute inset-0 rounded-full bg-gray-600 overflow-hidden">
               <div 
-                className={styles.progressBar} 
+                className="h-full bg-primary-500 rounded-full"
                 style={{ width: `${(currentTime / duration) * 100}%` }}
               />
-              
-              {/* Timestamp markers for comments */}
-              {sortedComments.map((comment) => (
-                <div
-                                   key={comment.id}
-                  className={styles.commentMarker}
-                  style={{ left: `${(comment.timestamp / duration) * 100}%` }}
-                  title={comment.text}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    jumpToTimestamp(comment.timestamp);
-                  }}
-                />
-              ))}
             </div>
             
-            <span className={styles.timeDisplay}>
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
-            
-            <div className={styles.volumeControl}>
-              <button 
-                className={styles.muteButton} 
-                onClick={() => setVolume(volume === 0 ? 1 : 0)}
-              >
-                {volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊'}
-              </button>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={volume}
-                onChange={handleVolumeChange}
-                className={styles.volumeSlider}
+            {/* Comment markers */}
+            {sortedComments.map((comment) => (
+              <div
+                key={comment.id}
+                className="absolute top-0 bottom-0 w-1 bg-yellow-400 cursor-pointer hover:scale-150 transition-transform"
+                style={{ left: `${(comment.timestamp / duration) * 100}%`, transform: 'translateX(-50%)' }}
+                title={`${comment.author}: ${comment.text}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  jumpToTimestamp(comment.timestamp);
+                }}
               />
+            ))}
+            
+            {/* Hover progress preview */}
+            <div className="absolute inset-0 rounded-full h-1 scale-y-0 group-hover:scale-y-150 transition-transform bg-gray-600 opacity-0 group-hover:opacity-100" />
+          </div>
+          
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              {/* Play/Pause button */}
+              <button
+                className="text-white hover:text-primary-400 transition-colors focus:outline-none"
+                onClick={togglePlay}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? <PauseCircle size={22} /> : <PlayCircle size={22} />}
+              </button>
+              
+              {/* Skip backward/forward buttons */}
+              <button
+                className="text-white hover:text-primary-400 transition-colors focus:outline-none"
+                onClick={() => playerRef.current?.seekTo(currentTime - 10)}
+                aria-label="Rewind 10 seconds"
+              >
+                <SkipBack size={18} />
+              </button>
+              
+              <button
+                className="text-white hover:text-primary-400 transition-colors focus:outline-none"
+                onClick={() => playerRef.current?.seekTo(currentTime + 10)}
+                aria-label="Forward 10 seconds"
+              >
+                <SkipForward size={18} />
+              </button>
+              
+              {/* Time display */}
+              <div className="text-white text-sm">
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </div>
             </div>
             
-            <div className={styles.playbackRateControl}>
-              <select 
+            <div className="flex items-center space-x-4">
+              {/* Comment button */}
+              <button
+                className="text-white hover:text-primary-400 transition-colors focus:outline-none"
+                onClick={() => setShowCommentForm(!showCommentForm)}
+                aria-label="Add comment"
+              >
+                <MessageSquare size={18} />
+              </button>
+              
+              {/* Volume control */}
+              <div className="flex items-center">
+                <button
+                  className="text-white hover:text-primary-400 transition-colors focus:outline-none mr-2"
+                  onClick={() => setVolume(volume === 0 ? 0.7 : 0)}
+                  aria-label={volume === 0 ? 'Unmute' : 'Mute'}
+                >
+                  {volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                </button>
+                
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={volume}
+                  onChange={handleVolumeChange}
+                  className="w-16 h-1 rounded-lg appearance-none bg-gray-600 cursor-pointer"
+                />
+              </div>
+              
+              {/* Playback speed */}
+              <select
                 value={playbackRate}
                 onChange={(e) => handlePlaybackRateChange(parseFloat(e.target.value))}
-                className={styles.playbackRateSelect}
+                className="bg-transparent text-white text-sm border border-gray-600 rounded px-1 focus:outline-none focus:ring-1 focus:ring-primary-500"
               >
-                <option value="0.5">0.5x</option>
-                <option value="0.75">0.75x</option>
-                <option value="1">1x</option>
-                <option value="1.25">1.25x</option>
-                <option value="1.5">1.5x</option>
-                <option value="2">2x</option>
+                <option value="0.5" className="bg-gray-800">0.5x</option>
+                <option value="0.75" className="bg-gray-800">0.75x</option>
+                <option value="1" className="bg-gray-800">1x</option>
+                <option value="1.25" className="bg-gray-800">1.25x</option>
+                <option value="1.5" className="bg-gray-800">1.5x</option>
+                <option value="2" className="bg-gray-800">2x</option>
               </select>
+              
+              {/* Fullscreen button */}
+              <button
+                className="text-white hover:text-primary-400 transition-colors focus:outline-none"
+                onClick={toggleFullScreen}
+                aria-label={isFullScreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              >
+                {isFullScreen ? <Minimize size={18} /> : <Maximize size={18} />}
+              </button>
             </div>
-            
-            <button 
-              className={styles.fullscreenButton} 
-              onClick={toggleFullScreen}
-            >
-              {isFullScreen ? '⤓' : '⤢'}
-            </button>
-            
-            <button 
-              className={styles.addCommentButton} 
-              onClick={() => setShowCommentForm(!showCommentForm)}
-            >
-              {showCommentForm ? 'Cancel' : 'Add Comment'}
-            </button>
           </div>
-        )}
+        </div>
       </div>
-
+      
+      {/* Comment form */}
       {showCommentForm && (
-        <div className={styles.commentForm}>
+        <div className="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Add Comment</h3>
+            <span className="text-sm text-gray-500 dark:text-gray-400">at {formatTime(currentTime)}</span>
+          </div>
+          
           <textarea
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
-            placeholder="Add your comment for this timestamp..."
-            className={styles.commentInput}
+            placeholder="What did you think about this part of the video?"
+            className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            rows={3}
           />
-          <div className={styles.commentFormFooter}>
-            <span>Adding comment at {formatTime(currentTime)}</span>
-            <button onClick={addComment} className={styles.submitCommentButton}>
+          
+          <div className="mt-3 flex justify-end space-x-3">
+            <button
+              onClick={() => setShowCommentForm(false)}
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+            >
+              Cancel
+            </button>
+            
+            <button
+              onClick={addComment}
+              disabled={!newComment.trim()}
+              className={`px-4 py-2 text-white rounded-lg transition-colors ${
+                newComment.trim() 
+                  ? 'bg-primary-600 hover:bg-primary-700' 
+                  : 'bg-gray-400 cursor-not-allowed'
+              }`}
+            >
               Save Comment
             </button>
           </div>
         </div>
       )}
-
-      <div className={styles.commentsSection}>
-        <h3>Video Comments</h3>
-        {sortedComments.length === 0 ? (
-          <p className={styles.noComments}>No comments yet. Add the first one!</p>
+      
+      {/* Comments section */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-white">Video Comments</h2>
+        </div>
+        
+                {sortedComments.length === 0 ? (
+          <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+            <MessageSquare className="mx-auto mb-3 h-10 w-10" />
+            <p>No comments yet. Add one to highlight important parts of the video!</p>
+          </div>
         ) : (
-          <ul className={styles.commentsList}>
-            {sortedComments.map((comment) => (
-              <li key={comment.id} className={styles.commentItem}>
-                <div className={styles.commentHeader}>
-                  <strong>{comment.author}</strong>
-                  <button 
-                    className={styles.timestampButton}
+          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            {sortedComments.map(comment => (
+              <div key={comment.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="font-medium text-gray-900 dark:text-white">{comment.author}</span>
+                  <button
                     onClick={() => jumpToTimestamp(comment.timestamp)}
+                    className="inline-flex items-center px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                   >
+                    <Clock size={14} className="mr-1" />
                     {formatTime(comment.timestamp)}
                   </button>
                 </div>
-                <p className={styles.commentText}>{comment.text}</p>
-                <div className={styles.commentActions}>
-                  <button 
-                    className={styles.deleteCommentButton}
+                
+                <p className="text-gray-700 dark:text-gray-300 mb-2">{comment.text}</p>
+                
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {new Date(comment.createdAt).toLocaleString()}
+                  </span>
+                  
+                  <button
                     onClick={() => setComments(comments.filter(c => c.id !== comment.id))}
+                    className="text-sm text-red-500 hover:text-red-700 dark:hover:text-red-400 transition-colors"
                   >
                     Delete
                   </button>
                 </div>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
       
-      <div className={styles.keyboardShortcutsInfo}>
-        <h4>Keyboard Shortcuts</h4>
-        <ul>
-          <li>Space/K: Play/Pause</li>
-          <li>→: Forward 10s</li>
-          <li>←: Rewind 10s</li>
-          <li>F: Fullscreen</li>
-          <li>M: Mute/Unmute</li>
-        </ul>
+      {/* Keyboard shortcuts info */}
+      <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">Keyboard Shortcuts</h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          <div className="flex items-center">
+            <span className="inline-block bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono mr-2">Space</span>
+            <span className="text-gray-700 dark:text-gray-300">Play/Pause</span>
+          </div>
+          <div className="flex items-center">
+            <span className="inline-block bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono mr-2">←</span>
+            <span className="text-gray-700 dark:text-gray-300">Rewind 10s</span>
+          </div>
+          <div className="flex items-center">
+            <span className="inline-block bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono mr-2">→</span>
+            <span className="text-gray-700 dark:text-gray-300">Forward 10s</span>
+          </div>
+          <div className="flex items-center">
+            <span className="inline-block bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono mr-2">F</span>
+            <span className="text-gray-700 dark:text-gray-300">Fullscreen</span>
+          </div>
+          <div className="flex items-center">
+            <span className="inline-block bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono mr-2">M</span>
+            <span className="text-gray-700 dark:text-gray-300">Mute/Unmute</span>
+          </div>
+        </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
